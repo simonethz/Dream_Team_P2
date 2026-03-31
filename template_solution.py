@@ -4,8 +4,7 @@
 import numpy as np
 import pandas as pd
 from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import DotProduct, RBF, Matern, RationalQuadratic, WhiteKernel
-from sklearn.preprocessing import StandardScaler
+from sklearn.gaussian_process.kernels import DotProduct, RBF, RationalQuadratic
 from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import IterativeImputer
 
@@ -35,9 +34,14 @@ def load_data():
     print(test_df.head(2))
     print("\n")
 
+    # One hot encode the seasons into 4 columns
+    train_df = pd.get_dummies(train_df, columns=["season"], dtype=float)
+    test_df = pd.get_dummies(test_df, columns=["season"], dtype=float)
+    train_df, test_df = train_df.align(test_df, join="left", axis=1, fill_value=0)
+
     # Identify the columns to impute. 
     # We must exclude "season" (non-numeric) and "price_CHF" (the target variable to avoid data leakage)
-    impute_cols = [col for col in train_df.columns if col not in ["season", "price_CHF"]]
+    impute_cols = [col for col in train_df.columns if col not in ["price_CHF"]]
 
     # Initialize the imputer
     imputer = IterativeImputer(random_state=42)
@@ -56,19 +60,15 @@ def load_data():
     print(test_df.isna().sum())
     print("\n")
 
-    # Drop rows with missing target
+    # Drop rows with missing y
     train_df = train_df.dropna(subset=["price_CHF"])
-
-    # One-hot encode season
-    train_df = pd.get_dummies(train_df, columns=["season"])
-    test_df = pd.get_dummies(test_df, columns=["season"])
 
     # Split train into features and target
     X_train_df = train_df.drop("price_CHF", axis=1)
     y_train = train_df["price_CHF"].values
 
     # Align train/test feature columns
-    X_train_df, X_test_df = X_train_df.align(test_df, join="left", axis=1, fill_value=0)
+    X_test_df = test_df.drop("price_CHF", axis=1, errors='ignore')
 
     # Convert to numpy arrays
     X_train = X_train_df.values
