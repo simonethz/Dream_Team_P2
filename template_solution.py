@@ -3,6 +3,8 @@
 # First, we import necessary libraries:
 import numpy as np
 import pandas as pd
+from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.gaussian_process.kernels import DotProduct, RBF, Matern, RationalQuadratic
 
 def load_data():
     """
@@ -50,12 +52,15 @@ class Model(object):
         super().__init__()
         self._x_train = None
         self._y_train = None
+        self._gpr = None
 
     def fit(self, X_train: np.ndarray, y_train: np.ndarray):
-        #TODO: Define the model and fit it using (X_train, y_train)
         self._x_train = X_train
         self._y_train = y_train
 
+        self._gpr = GaussianProcessRegressor(kernel=DotProduct())
+        self._gpr.fit(self._x_train, self._y_train)
+        
     def predict(self, X_test: np.ndarray) -> np.ndarray:
         y_pred=np.zeros(X_test.shape[0])
         #TODO: Use the model to make predictions y_pred using test data X_test
