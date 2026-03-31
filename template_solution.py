@@ -7,6 +7,7 @@ from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import DotProduct, RBF, Matern, RationalQuadratic
 
 def load_data():
+
     """
     This function loads the training and test data, preprocesses it, removes the NaN values and interpolates the missing
     data using imputation
@@ -27,6 +28,19 @@ def load_data():
     print(train_df.head(2))
     print('\n')
     
+    price_cols = [col for col in train_df.columns if col != "season"]
+
+    # For each column, fill NaNs with mean per season
+    for col in price_cols:
+        train_df[col] = train_df.groupby("season")[col].transform(
+            lambda x: x.fillna(x.mean())
+        )
+
+    # Optional: check if any NaNs remain
+    print("Remaining NaNs per column:")
+    print(train_df.isna().sum())
+
+    return train_df
     # Load test data
     test_df = pd.read_csv("test.csv")
 
