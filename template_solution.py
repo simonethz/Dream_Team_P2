@@ -6,60 +6,82 @@ import pandas as pd
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import DotProduct, RBF, Matern, RationalQuadratic
 
+import pandas as pd
+import numpy as np
+
 def load_data():
-
     """
-    This function loads the training and test data, preprocesses it, removes the NaN values and interpolates the missing
-    data using imputation
-
-    Parameters
-    ----------
-    Returns
-    ----------
-    X_train: matrix of floats, training input with features
-    y_train: array of floats, training output with labels
-    X_test: matrix of floats: dim = (100, ?), test input with features
+    Loads training and test data, imputes missing values using
+    season-wise means computed from the training set, and returns
+    X_train, y_train, X_test.
     """
+
     # Load training data
     train_df = pd.read_csv("train.csv")
-    
+
     print("Training data:")
     print("Shape:", train_df.shape)
     print(train_df.head(2))
-    print('\n')
-    
+    print("\n")
+
+    # Load test data
+    test_df = pd.read_csv("test.csv")
+
+    print("Test data:")
+    print("Shape:", test_df.shape)
+    print(test_df.head(2))
+    print("\n")
+
+    # All price columns in training data
     price_cols = [col for col in train_df.columns if col != "season"]
 
-    # For each column, fill NaNs with mean per season
+    # Compute mean for each season and each price column from TRAINING data
+    season_means = train_df.groupby("season")[price_cols].mean()
+
+    # Fill missing values in training data using training season means
     for col in price_cols:
         train_df[col] = train_df.groupby("season")[col].transform(
             lambda x: x.fillna(x.mean())
         )
 
-    # Optional: check if any NaNs remain
-    print("Remaining NaNs per column:")
+    # Fill missing values in test data using TRAINING season means
+    test_price_cols = [col for col in test_df.columns if col != "season"]
+
+    for col in test_price_cols:
+        test_df[col] = test_df.apply(
+            lambda row: season_means.loc[row["season"], col]
+            if pd.isna(row[col]) else row[col],
+            axis=1
+        )
+
+    print("Remaining NaNs in training data:")
     print(train_df.isna().sum())
+    print("\n")
 
-    return train_df
-    # Load test data
-    test_df = pd.read_csv("test.csv")
+    print("Remaining NaNs in test data:")
+    print(test_df.isna().sum())
+    print("\n")
 
-    print("Test data:")
-    print(test_df.shape)
-    print(test_df.head(2))
+    # One-hot encode season
+    train_df = pd.get_dummies(train_df, columns=["season"])
+    test_df = pd.get_dummies(test_df, columns=["season"])
 
-    # Dummy initialization of the X_train, X_test and y_train
-    # TODO: Depending on how you deal with the non-numeric data, you may want to 
-    # modify/ignore the initialization of these variables   
-    X_train = np.zeros_like(train_df.drop(['price_CHF'],axis=1))
-    y_train = np.zeros_like(train_df['price_CHF'])
-    X_test = np.zeros_like(test_df)
+    # Split train into features and target
+    X_train_df = train_df.drop("price_CHF", axis=1)
+    y_train = train_df["price_CHF"].values
 
-    # TODO: Perform data preprocessing, imputation and extract X_train, y_train and X_test
+    # Align train/test feature columns
+    X_train_df, X_test_df = X_train_df.align(test_df, join="left", axis=1, fill_value=0)
 
-    assert (X_train.shape[1] == X_test.shape[1]) and (X_train.shape[0] == y_train.shape[0]) and (X_test.shape[0] == 100), "Invalid data shape"
+    # Convert to numpy arrays
+    X_train = X_train_df.values
+    X_test = X_test_df.values
+
+    assert (X_train.shape[1] == X_test.shape[1]) and \
+           (X_train.shape[0] == y_train.shape[0]) and \
+           (X_test.shape[0] == 100), "Invalid data shape"
+
     return X_train, y_train, X_test
-
 
 class Model(object):
     def __init__(self):
