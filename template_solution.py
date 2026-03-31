@@ -32,22 +32,20 @@ def load_data():
     print(test_df.head(2))
     print("\n")
 
-    # All price columns in training data
-    price_cols = [col for col in train_df.columns if col != "season"]
+    # Input feature columns only
+    feature_cols = [col for col in train_df.columns if col not in ["season", "price_CHF"]]
 
-    # Compute mean for each season and each price column from TRAINING data
-    season_means = train_df.groupby("season")[price_cols].mean()
+    # Compute season-wise means from training data
+    season_means = train_df.groupby("season")[feature_cols].mean()
 
-    # Fill missing values in training data using training season means
-    for col in price_cols:
+    # Fill missing values in training features
+    for col in feature_cols:
         train_df[col] = train_df.groupby("season")[col].transform(
             lambda x: x.fillna(x.mean())
         )
 
-    # Fill missing values in test data using TRAINING season means
-    test_price_cols = [col for col in test_df.columns if col != "season"]
-
-    for col in test_price_cols:
+    # Fill missing values in test features using training season means
+    for col in feature_cols:
         test_df[col] = test_df.apply(
             lambda row: season_means.loc[row["season"], col]
             if pd.isna(row[col]) else row[col],
@@ -61,6 +59,9 @@ def load_data():
     print("Remaining NaNs in test data:")
     print(test_df.isna().sum())
     print("\n")
+
+    # Drop rows with missing target
+    train_df = train_df.dropna(subset=["price_CHF"])
 
     # One-hot encode season
     train_df = pd.get_dummies(train_df, columns=["season"])
@@ -94,7 +95,10 @@ class Model(object):
         self._x_train = X_train
         self._y_train = y_train
 
-        self._gpr = GaussianProcessRegressor(kernel=DotProduct())
+        kernel = DotProduct() + RBF() + RationalQuadratic()
+        self._gpr = GaussianProcessRegressor(kernel=kernel)
+
+        #self._gpr = GaussianProcessRegressor(kernel=DotProduct())
         self._gpr.fit(self._x_train, self._y_train)
         
     def predict(self, X_test: np.ndarray) -> np.ndarray:
