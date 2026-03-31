@@ -5,6 +5,8 @@ import numpy as np
 import pandas as pd
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import DotProduct, RBF, Matern, RationalQuadratic
+from sklearn.experimental import enable_iterative_imputer
+from sklearn.impute import IterativeImputer
 
 import pandas as pd
 import numpy as np
@@ -32,25 +34,18 @@ def load_data():
     print(test_df.head(2))
     print("\n")
 
-    # Input feature columns only
-    feature_cols = [col for col in train_df.columns if col not in ["season", "price_CHF"]]
+    # Identify the columns to impute. 
+    # We must exclude "season" (non-numeric) and "price_CHF" (the target variable to avoid data leakage)
+    impute_cols = [col for col in train_df.columns if col not in ["season", "price_CHF"]]
 
-    # Compute season-wise means from training data
-    season_means = train_df.groupby("season")[feature_cols].mean()
+    # Initialize the imputer
+    imputer = IterativeImputer(random_state=42)
 
-    # Fill missing values in training features
-    for col in feature_cols:
-        train_df[col] = train_df.groupby("season")[col].transform(
-            lambda x: x.fillna(x.mean())
-        )
+    # Fit the imputer on the TRAINING data, and transform the TRAINING data
+    train_df[impute_cols] = imputer.fit_transform(train_df[impute_cols])
 
-    # Fill missing values in test features using training season means
-    for col in feature_cols:
-        test_df[col] = test_df.apply(
-            lambda row: season_means.loc[row["season"], col]
-            if pd.isna(row[col]) else row[col],
-            axis=1
-        )
+    # Transform the TEST data using the rules learned from the training data
+    test_df[impute_cols] = imputer.transform(test_df[impute_cols])
 
     print("Remaining NaNs in training data:")
     print(train_df.isna().sum())
