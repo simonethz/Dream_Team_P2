@@ -4,7 +4,8 @@
 import numpy as np
 import pandas as pd
 from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import DotProduct, RBF, Matern, RationalQuadratic
+from sklearn.gaussian_process.kernels import DotProduct, RBF, Matern, RationalQuadratic, WhiteKernel
+from sklearn.preprocessing import StandardScaler
 from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import IterativeImputer
 
@@ -92,14 +93,11 @@ class Model(object):
 
         kernel = DotProduct() + RBF() + RationalQuadratic()
         self._gpr = GaussianProcessRegressor(kernel=kernel)
-
-        #self._gpr = GaussianProcessRegressor(kernel=DotProduct())
         self._gpr.fit(self._x_train, self._y_train)
         
     def predict(self, X_test: np.ndarray) -> np.ndarray:
-        y_pred=np.zeros(X_test.shape[0])
-        #TODO: Use the model to make predictions y_pred using test data X_test
         y_pred = self._gpr.predict(X_test)
+
         assert y_pred.shape == (X_test.shape[0],), "Invalid data shape"
         return y_pred
 
@@ -117,4 +115,3 @@ if __name__ == "__main__":
     dt.columns = ['price_CHF']
     dt.to_csv('results.csv', index=False)
     print("\nResults file successfully generated!")
-
