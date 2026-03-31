@@ -1,16 +1,17 @@
 import numpy as np
 import pandas as pd
 from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import DotProduct, RationalQuadratic, WhiteKernel
+from sklearn.gaussian_process.kernels import DotProduct, RationalQuadratic, WhiteKernel, RBF
 from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import IterativeImputer
+from sklearn.preprocessing import StandardScaler
 
 
 def load_data():
     """
-    Loads training and test data, imputes missing values using
-    learned patterns from the training set, and returns
-    X_train, y_train, X_test.
+    Loads training and test data, applies time-aware local imputation, 
+    generates local rolling features to capture time history, scales features, 
+    and returns X_train, y_train, X_test.
     """
 
     # Load training data
@@ -39,10 +40,25 @@ def load_data():
     # Exclude target from imputation
     impute_cols = [col for col in train_df.columns if col != "price_CHF"]
 
-    # Fit imputer on training data only
+    # --- TIME-AWARE LOCAL IMPUTATION ---
+    # Linearly interpolate missing values first, as neighboring rows are related in time
+    train_df[impute_cols] = train_df[impute_cols].interpolate(method='linear', limit_direction='both')
+    test_df[impute_cols] = test_df[impute_cols].interpolate(method='linear', limit_direction='both')
+
+    # Fit imputer on training data only to catch any remaining NaNs
     imputer = IterativeImputer(random_state=42)
     train_df[impute_cols] = imputer.fit_transform(train_df[impute_cols])
     test_df[impute_cols] = imputer.transform(test_df[impute_cols])
+
+    # --- ADD LOCAL ROLLING FEATURES ---
+    # Captures row-to-row time context safely without assuming train/test are connected.
+    # Exclude categorical dummy columns from rolling averages.
+    rolling_cols = [col for col in impute_cols if not col.startswith("season_")]
+    
+    for col in rolling_cols:
+        # 3-period rolling average. min_periods=1 ensures first few rows don't become NaN.
+        train_df[f"{col}_rolling_3"] = train_df[col].rolling(window=3, min_periods=1).mean()
+        test_df[f"{col}_rolling_3"] = test_df[col].rolling(window=3, min_periods=1).mean()
 
     print("Remaining NaNs in training data:")
     print(train_df.isna().sum())
@@ -66,6 +82,12 @@ def load_data():
     X_train = X_train_df.values
     X_test = X_test_df.values
 
+    # --- FEATURE SCALING ---
+    # Vital for GPR to prevent features with large numeric ranges from dominating the kernel
+    scaler = StandardScaler()
+    X_train = scaler.fit_transform(X_train)
+    X_test = scaler.transform(X_test)
+
     assert (X_train.shape[1] == X_test.shape[1]) and \
            (X_train.shape[0] == y_train.shape[0]) and \
            (X_test.shape[0] == 100), "Invalid data shape"
@@ -85,10 +107,11 @@ class Model(object):
         self._y_train = y_train
 
         # Best kernel: Dot + RQ + White
-        kernel = DotProduct() + RationalQuadratic() + WhiteKernel()
+        kernel = DotProduct() + RBF() + WhiteKernel()
 
         self._gpr = GaussianProcessRegressor(
             kernel=kernel,
+            normalize_y=True, # Centers the target variable for improved convergence
             random_state=42
         )
         self._gpr.fit(self._x_train, self._y_train)
