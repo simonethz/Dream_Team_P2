@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import DotProduct, RationalQuadratic, WhiteKernel, RBF
+from sklearn.gaussian_process.kernels import DotProduct, RationalQuadratic, WhiteKernel, RBF, ExpSineSquared
 from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import IterativeImputer
 from sklearn.preprocessing import StandardScaler
@@ -106,12 +106,16 @@ class Model(object):
         self._x_train = X_train
         self._y_train = y_train
 
-        # Best kernel: Dot + RQ + White
-        kernel = DotProduct() + RBF() + WhiteKernel()
+        # RBF and RationalQuadratic for the main signal
+        # Add WhiteKernel to let the model learn the noise level automatically
+        kernel = 1.0 * RBF(length_scale=1.0, length_scale_bounds=(1e-2, 1e3)) + \
+                 1.0 * RationalQuadratic(length_scale=1.0, alpha=0.1, alpha_bounds=(1e-3, 1e2)) + \
+                 WhiteKernel(noise_level=0.1, noise_level_bounds=(1e-5, 1.0))
 
         self._gpr = GaussianProcessRegressor(
             kernel=kernel,
-            normalize_y=True, # Centers the target variable for improved convergence
+            alpha=1e-5,  # Drop this down! Let WhiteKernel handle the noise
+            normalize_y=True, 
             random_state=42
         )
         self._gpr.fit(self._x_train, self._y_train)
