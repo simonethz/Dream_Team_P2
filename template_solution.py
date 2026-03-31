@@ -59,6 +59,7 @@ class Model(object):
     def predict(self, X_test: np.ndarray) -> np.ndarray:
         y_pred=np.zeros(X_test.shape[0])
         #TODO: Use the model to make predictions y_pred using test data X_test
+        y_pred = self._gpr.predict(X_test)
         assert y_pred.shape == (X_test.shape[0],), "Invalid data shape"
         return y_pred
 
