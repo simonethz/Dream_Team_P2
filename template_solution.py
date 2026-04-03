@@ -1,64 +1,56 @@
 import numpy as np
 import pandas as pd
 from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import DotProduct, RationalQuadratic, WhiteKernel, RBF, ExpSineSquared, \
-    ConstantKernel, Matern
+from sklearn.gaussian_process.kernels import (DotProduct, RationalQuadratic, WhiteKernel, RBF, ExpSineSquared, ConstantKernel, Matern)
 from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import IterativeImputer
 from sklearn.preprocessing import StandardScaler
 
-
+#Gemini and ChatGPT where used for kernal combination ideas. Testing was done using cross-fold on training data
+#and uploading various combinations
 
 def load_data():
-    """
-    Loads training and test data, applies time-aware local imputation, 
-    generates local rolling features to capture time history, scales features, 
-    and returns X_train, y_train, X_test.
-    """
-
-    # Load training data
+    # Load raw train and test files
     train_df = pd.read_csv("train.csv")
+    test_df = pd.read_csv("test.csv")
 
     print("Training data:")
     print("Shape:", train_df.shape)
     print(train_df.head(2))
     print("\n")
 
-    # Load test data
-    test_df = pd.read_csv("test.csv")
-
     print("Test data:")
     print("Shape:", test_df.shape)
     print(test_df.head(2))
     print("\n")
 
-    # One-hot encode season
+    # Convert the categorical season column into numeric dummy variables
     train_df = pd.get_dummies(train_df, columns=["season"], dtype=float)
     test_df = pd.get_dummies(test_df, columns=["season"], dtype=float)
 
-    # Align columns between train and test
+    # Ensure train and test have the same feature columns
     train_df, test_df = train_df.align(test_df, join="left", axis=1, fill_value=0)
 
-    # Exclude target from imputation
+    # Only impute input features, never the target
     impute_cols = [col for col in train_df.columns if col != "price_CHF"]
 
-    # --- TIME-AWARE LOCAL IMPUTATION ---
-    # Linearly interpolate missing values first, as neighboring rows are related in time
-    train_df[impute_cols] = train_df[impute_cols].interpolate(method='linear', limit_direction='both')
-    test_df[impute_cols] = test_df[impute_cols].interpolate(method='linear', limit_direction='both')
+    # Use interpolation first because neighboring rows may contain related time information
+    train_df[impute_cols] = train_df[impute_cols].interpolate(
+        method="linear", limit_direction="both"
+    )
+    test_df[impute_cols] = test_df[impute_cols].interpolate(
+        method="linear", limit_direction="both"
+    )
 
-    # Fit imputer on training data only to catch any remaining NaNs
+    # Iterative imputation fills any remaining missing feature values
     imputer = IterativeImputer(random_state=42)
     train_df[impute_cols] = imputer.fit_transform(train_df[impute_cols])
     test_df[impute_cols] = imputer.transform(test_df[impute_cols])
 
-    # --- ADD LOCAL ROLLING FEATURES ---
-    # Captures row-to-row time context safely without assuming train/test are connected.
-    # Exclude categorical dummy columns from rolling averages.
+    # Add short-term smoothed versions of numeric features
     rolling_cols = [col for col in impute_cols if not col.startswith("season_")]
-    
+
     for col in rolling_cols:
-        # 3-period rolling average. min_periods=1 ensures first few rows don't become NaN.
         train_df[f"{col}_rolling_3"] = train_df[col].rolling(window=3, min_periods=1).mean()
         test_df[f"{col}_rolling_3"] = test_df[col].rolling(window=3, min_periods=1).mean()
 
@@ -70,22 +62,18 @@ def load_data():
     print(test_df.isna().sum())
     print("\n")
 
-    # Drop rows with missing target
+    # Rows without a target value cannot be used for supervised training
     train_df = train_df.dropna(subset=["price_CHF"])
 
-    # Split into features and target
+    # Separate inputs and target
     X_train_df = train_df.drop("price_CHF", axis=1)
     y_train = train_df["price_CHF"].values
-
-    # Test features
     X_test_df = test_df.drop("price_CHF", axis=1, errors="ignore")
 
-    # Convert to numpy
     X_train = X_train_df.values
     X_test = X_test_df.values
 
-    # --- FEATURE SCALING ---
-    # Vital for GPR to prevent features with large numeric ranges from dominating the kernel
+    # Standardization is important for Gaussian Processes because kernels depend on distances
     scaler = StandardScaler()
     X_train = scaler.fit_transform(X_train)
     X_test = scaler.transform(X_test)
@@ -108,24 +96,34 @@ class Model(object):
         self._x_train = X_train
         self._y_train = y_train
 
-        # RBF and RationalQuadratic for the main signal
-        # Add WhiteKernel to let the model learn the noise level automatically
+        # Combine:
+        # - a linear component (DotProduct)
+        # - a flexible nonlinear component (Matern)
+        # - a noise term (WhiteKernel)
+
         num_features = self._x_train.shape[1]
-        kernel = (ConstantKernel(1.0, (1e-3, 1e3)) * DotProduct(sigma_0=1.0, sigma_0_bounds=(1e-3, 1e2)) +
-                         ConstantKernel(1.0, (1e-3, 1e3)) * Matern(length_scale=np.ones(num_features), length_scale_bounds=(1e-3, 1e3), nu=1.5) +
-                         WhiteKernel(noise_level=0.1, noise_level_bounds=(1e-5, 1.0)))
+        kernel = (
+            ConstantKernel(1.0, (1e-3, 1e3))
+            * DotProduct(sigma_0=1.0, sigma_0_bounds=(1e-3, 1e2))
+            + ConstantKernel(1.0, (1e-3, 1e3))
+            * Matern(
+                length_scale=np.ones(num_features),
+                length_scale_bounds=(1e-3, 1e3),
+                nu=1.5,
+            )
+            + WhiteKernel(noise_level=0.1, noise_level_bounds=(1e-5, 1.0))
+        )
 
         self._gpr = GaussianProcessRegressor(
             kernel=kernel,
-            alpha=1e-5,  # Drop this down! Let WhiteKernel handle the noise
-            normalize_y=True, 
-            random_state=42
+            alpha=1e-5,
+            normalize_y=True,
+            random_state=42,
         )
         self._gpr.fit(self._x_train, self._y_train)
 
     def predict(self, X_test: np.ndarray) -> np.ndarray:
         y_pred = self._gpr.predict(X_test)
-
         assert y_pred.shape == (X_test.shape[0],), "Invalid data shape"
         return y_pred
 
