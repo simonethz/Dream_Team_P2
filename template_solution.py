@@ -6,7 +6,7 @@ from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import IterativeImputer
 from sklearn.preprocessing import StandardScaler
 
-#Gemini and ChatGPT where used for kernal combination ideas. Testing was done using cross-fold on training data
+#Gemini and ChatGPT where used for kernal combination ideas. Testing was done using cross-validation on training data
 #and uploading various combinations
 
 def load_data():
