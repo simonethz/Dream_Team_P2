@@ -6,8 +6,8 @@ from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import IterativeImputer
 from sklearn.preprocessing import StandardScaler
 
-#Gemini and ChatGPT where used for kernal combination ideas. Testing was done using cross-validation on training data
-#and uploading various combinations
+#Gemini and ChatGPT where used for kernel combination ideas and synthax. 
+#Testing was done using cross-validation on training data and uploading various combinations to project website.
 
 def load_data():
     # Load raw train and test files
@@ -99,6 +99,7 @@ class Model(object):
         # Combine:
         # - a linear component (DotProduct)
         # - a flexible nonlinear component (Matern)
+        # - a scaling component for the DotProduct and Matern Kernel (ConstantKernel)
         # - a noise term (WhiteKernel)
 
         num_features = self._x_train.shape[1]
